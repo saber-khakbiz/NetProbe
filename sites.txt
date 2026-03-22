@@ -1,0 +1,11 @@
+google.com
+gemini.google.com
+github.com
+youtube.com
+speedtest.net
+navixia.com
+maktabkhooneh.org
+chatgpt.com
+grok.com
+claude.ai
+chat.deepseek.com
