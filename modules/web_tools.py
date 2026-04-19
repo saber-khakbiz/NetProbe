@@ -129,3 +129,110 @@ def module_http_probe():
             break
     else:
         print(f"{Colors.RED}[-] Too many redirects (>{MAX_REDIRECTS}).{Colors.RESET}")
+        
+        
+def module_full_access_check():
+    """
+    Comprehensive site accessibility check v2:
+      - DNS resolution (poisoning detection)
+      - Scan common web ports (80,443,8080,8443,3000,5000,8000)
+      - HTTP/HTTPS request on each open port
+    """
+    print_header("Full Site Accessibility Check v2")
+    raw = input(f"{Colors.YELLOW}Enter domain or URL: {Colors.RESET}").strip()
+    if not raw:
+        print(f"{Colors.RED}[-] No input provided.{Colors.RESET}")
+        return
+
+    from core.validators import clean_domain
+    domain = clean_domain(raw)
+    if not domain:
+        print(f"{Colors.RED}[-] Could not extract a valid domain.{Colors.RESET}")
+        return
+
+    print(f"\n{Colors.BOLD}Target:{Colors.RESET} {domain}\n")
+    print(f"{Colors.BLUE}[*] Step 1: DNS Resolution{Colors.RESET}")
+
+    from core.network_utils import resolve, is_dns_poisoned, tcp_probe
+    try:
+        ip = resolve(domain)
+        if is_dns_poisoned(ip):
+            print(f"{Colors.RED}    [!!] DNS Poisoned → IP: {ip}{Colors.RESET}")
+            print(f"{Colors.RED}    [!!] Site likely blocked or redirected.{Colors.RESET}")
+            return
+        else:
+            print(f"{Colors.GREEN}    [+] DNS OK → {ip}{Colors.RESET}")
+    except Exception as e:
+        print(f"{Colors.RED}    [-] DNS resolution failed: {e}{Colors.RESET}")
+        return
+
+    # --- Step 2: Scan common web ports ---
+    common_web_ports = [80, 443, 8080, 8443, 3000, 5000, 8000, 8888]
+    print(f"\n{Colors.BLUE}[*] Step 2: Scanning common web ports{Colors.RESET}")
+    open_ports = []
+    for port in common_web_ports:
+        if tcp_probe(ip, port, timeout=1.5) == 0:
+            open_ports.append(port)
+            print(f"{Colors.GREEN}    [+] Port {port} open{Colors.RESET}")
+        else:
+            print(f"{Colors.YELLOW}    [!] Port {port} closed/filtered{Colors.RESET}")
+
+    if not open_ports:
+        print(f"{Colors.RED}[✗] No web ports open. Site unreachable via HTTP/HTTPS.{Colors.RESET}")
+        return
+
+    # --- Step 3: HTTP/HTTPS probe on each open port ---
+    print(f"\n{Colors.BLUE}[*] Step 3: Probing HTTP/HTTPS on open ports{Colors.RESET}")
+    import http.client
+    import ssl
+    from core.config import DEFAULT_TIMEOUT
+
+    def http_check(scheme, port, host):
+        try:
+            if scheme == "https":
+                conn = http.client.HTTPSConnection(host, port=port, timeout=DEFAULT_TIMEOUT)
+            else:
+                conn = http.client.HTTPConnection(host, port=port, timeout=DEFAULT_TIMEOUT)
+            conn.request("GET", "/", headers={"User-Agent": "NetworkTool/4.0", "Host": host})
+            resp = conn.getresponse()
+            status = resp.status
+            reason = resp.reason
+            server = resp.getheader("Server", "")
+            location = resp.getheader("Location", "")
+            conn.close()
+            return status, reason, server, location
+        except Exception as e:
+            return None, str(e), None, None
+
+    any_success = False
+    for port in open_ports:
+        print(f"\n{Colors.CYAN}  --- Testing port {port} ---{Colors.RESET}")
+        # Determine likely scheme: assume HTTPS for 443,8443; HTTP for others (but try both if ambiguous)
+        schemes_to_try = []
+        if port in (443, 8443):
+            schemes_to_try = ["https"]
+        elif port == 80:
+            schemes_to_try = ["http"]
+        else:
+            schemes_to_try = ["http", "https"]  # try both
+
+        for scheme in schemes_to_try:
+            print(f"    Trying {scheme.upper()}...")
+            status, reason, server, location = http_check(scheme, port, domain)
+            if isinstance(status, int):
+                color = Colors.GREEN if 200 <= status < 400 else Colors.YELLOW
+                print(f"{color}      Response: {status} {reason}{Colors.RESET}")
+                if location:
+                    print(f"{color}      Redirect: {location}{Colors.RESET}")
+                if server:
+                    print(f"      Server: {server}")
+                any_success = True
+                break  # Stop trying other scheme for this port
+            else:
+                print(f"{Colors.RED}      Failed: {reason}{Colors.RESET}")
+
+    print(f"\n{Colors.BOLD}--- Summary ---{Colors.RESET}")
+    if any_success:
+        print(f"{Colors.GREEN}[✓] Site appears accessible on at least one web port.{Colors.RESET}")
+    else:
+        print(f"{Colors.RED}[✗] No HTTP/HTTPS service responded correctly.{Colors.RESET}")
