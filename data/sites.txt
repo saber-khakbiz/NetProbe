@@ -2,7 +2,10 @@ google.com
 tvcharts.co
 instagram.com
 playstation.com
+<<<<<<< HEAD
 web.bale.ai
+=======
+>>>>>>> b6b66a7a1a499a189400f3a9c08fb2e86fcbe413
 gemini.google.com
 github.com
 store.steampowered.com
